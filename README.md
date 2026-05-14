@@ -18,6 +18,35 @@ This repository runs both pipelines on the same 2-hour storm window, on the same
 
 ---
 
+## Kernel Version and Operator Declaration
+
+This repository implements **MD V4 (ABR)** — the multi-topology
+generalization of the relational kernel.
+
+**Kernel composition:** `E(x, ρ) = R(B(A(x)), ρ(A(x)))`
+**Operator ordering:** A → B → R → E
+
+In V4, C is not a kernel operator. It is a declared projection
+applied at the application layer with stated preserved and
+discarded invariants. C does not appear in the kernel composition
+because V4 operates on a multi-topology edge field (spatial +
+component + temporal) where boundedness and coherence are
+independent structural properties — C's shared denominator
+suppresses quiet edge types when one type dominates, destroying
+the cross-topology coupling that R produces and that Γ measures.
+
+Γ is computed on the unbounded edge field output of R. Any
+bounding applied for visualization or downstream use is a
+declared projection, not a kernel operation.
+
+V3 (ABRCE) is the single-topology special case where C's
+projection is lossless. All V3 results remain valid.
+
+For the formal argument establishing this distinction, see
+the kernel README §V4 and Object Error §8.7.
+
+---
+
 ## Results Summary
 
 ### Comparison Metrics (default parameters: edge 1000 km, SH degree 18)
@@ -111,6 +140,10 @@ The traditional pipeline preserves progressively less edge-field variance at sho
 
 Applying operator A to the traditional pipeline's residual (measured minus reconstructed at station locations) produces a nontrivial edge field. The information not preserved by the traditional pipeline is not unstructured noise — it contains relational gradients between nearby stations.
 
+### 5. Null Test (Phase 4.1)
+
+Synthetic white noise with identical marginal variance per component but destroyed relational arrangement produces Γ ≈ 0. By Theorem 1 (Object Error), index-local operators produce identical output on this data and on real data with the same marginals. Γ > 0 on storm data and Γ ≈ 0 on synthetic data confirms that Γ measures relational arrangement, not marginal properties.
+
 ---
 
 ## Structural Declarations
@@ -133,7 +166,7 @@ Temporal evolution is strictly one-directional. Step t is adjacent to step t+1 o
 
 ### B Accumulation
 
-B sums without degree normalization. High-degree stations produce larger accumulated edges. This is a structural property of sensor density: dense regions accumulate more because M has more information there.
+B sums without degree normalization. High-degree stations produce larger accumulated edges. This is a structural property of sensor density: dense regions accumulate more because M has more information there. Degree-normalizing B would alter pairwise differences in the edge field before R operates on them — a pre-R transformation with unstated preserved/discarded invariants. B is defined as additive accumulation along the declared topology (Object Error §8.2). Degree normalization is held as a declared open condition, not applied by default.
 
 ### σ² as Declared Projection
 
@@ -152,18 +185,23 @@ src/
   phase2_1_abr_pipeline.py      — ABR 3-topology pipeline (spatial × component × temporal)
   phase3_comparison.py          — Four direct comparisons with figures
   phase3_sensitivity.py         — Parameter sensitivity analysis
+  phase4_1_null_test.py         — Null test: synthetic white noise → Γ ≈ 0
+
+run_all.py                      — Full pipeline execution (each phase gates the next)
 
 output/
   phase1/                       — Traditional pipeline results
   phase2_1/                     — ABR pipeline results
   phase3/                       — Comparison summary
   phase3_sensitivity/           — Sensitivity sweep results
+  phase4_1/                     — Null test results
 
 figures/
   comparison_temporal.png       — Γ vs AE vs SH power
   comparison_spatial.png        — Station-level reconstruction error
   comparison_components.png     — Component coupling vs independent SH
   comparison_residual.png       — A(residual) edge-field analysis
+  phase4_1_null_gamma_vs_storm.png — Null Γ vs storm Γ
 ```
 
 ---
@@ -171,6 +209,11 @@ figures/
 ## Reproduction
 
 ```bash
+# Full pipeline (each phase gates the next)
+python run_all.py data/supermag.csv
+
+# Or run phases individually:
+
 # Phase 1: Traditional pipeline (2-hour window around storm peak)
 python src/phase1_traditional.py data/supermag.csv
 
@@ -182,25 +225,36 @@ python src/phase3_comparison.py
 
 # Phase 3.5: Sensitivity analysis
 python src/phase3_sensitivity.py
+
+# Phase 4.1: Null test
+python src/phase4_1_null_test.py data/supermag.csv
 ```
 
-Requirements: numpy, pandas, scipy, matplotlib.
+Requirements: numpy, scipy, matplotlib.
 
 SuperMAG data is free but requires an account: https://supermag.jhuapl.edu/
 
 ---
 
-## Open Conditions
+## Declared Open Conditions
 
-1. **Coordinate frame.** The current pipeline uses geographic coordinates. The open condition from the kernel work is that R's component coupling may require source-native coordinates (SM/MLT). SuperMAG provides MLT and MCOLAT columns. A comparison in both frames would determine whether the choice affects Γ structure.
+1. **Coordinate frame (SM/MLT vs geographic).** Station measurements are in geographic N/E/Z. In solar magnetic (SM) coordinates, the N component aligns with the magnetic field, giving component coupling direct physical interpretation (field-aligned vs perpendicular). The existence of inter-component coupling is frame-independent; the magnitude and physical interpretation are frame-dependent. SuperMAG provides MLT and MCOLAT columns. A SM/MLT comparison is planned. This does not threaten the core non-preservation result but may alter the component coupling decomposition.
 
-2. **ABR per-station spatial breakdown.** The 3-topology pipeline computes Γ over the full edge field but does not yet decompose per-station. Adding per-station σ² from R output would enable direct spatial comparison with the traditional pipeline's residual map.
+2. **B accumulation and vertex degree.** B sums all edges at the forward vertex without normalizing by vertex degree. Stations with more Delaunay neighbors produce larger accumulated edges. This is a structural property of the declared topology — the Delaunay triangulation as declared by M — not a confound to be corrected. Degree-normalizing B would alter pairwise differences in the edge field before R operates on them, constituting a pre-R transformation with unstated preserved/discarded invariants. B is defined as additive accumulation along the declared topology (Object Error §8.2). Degree normalization is held as a declared open condition, not applied by default.
 
-3. **Multi-storm consistency.** These results are from a single event. The comparison should be repeated on at least two additional storms to confirm the non-preservation pattern is not event-specific.
+3. **ρ_base parameter sensitivity.** ρ is derived from A(x) — the local relational gradient magnitude — bounded by ρ_base × m / (1 + m). Default ρ_base = 0.3. When storm-time gradients are large, ρ is large, and R couples more strongly. This is operator behavior, not a confound: stronger gradients producing stronger circulation is the physical content of R. A ρ_base sweep across [0.1, 0.3, 0.5] is planned to characterize parameter sensitivity.
 
-4. **IDW parameter sensitivity.** The edge threshold and SH truncation sweeps are complete. IDW k (number of neighbors) and distance weighting exponent have not been swept.
+4. **Variance ratio > 1.0 at short baselines.** At the 300 km edge threshold, the residual's edge-field variance exceeds the measured edge-field variance at some timesteps. This may indicate the SH reconstruction introduces phase errors — reconstructed fields with correct power but different spatial arrangement, producing different pairwise differences. The observation is documented; causal interpretation is deferred pending investigation.
 
-5. **Window size sensitivity.** The 2-hour window was chosen for computational tractability with the 3-topology edge field. Extending to the full 3-day event with the per-timestep approach (not 3-topology) would test whether the results hold at longer timescales.
+5. **Spectral theorem applicability.** Theorems 5 and 6 of the Object Error are proved for the periodic ring topology. This repository operates on a Delaunay triangulation, not a ring. Γ is measured empirically, not derived from spectral results. The spectral characterization of B-admissibility and scale resonance on irregular graphs is a declared open condition (invariant taxonomy §7, §8).
+
+6. **Multi-storm consistency.** These results are from a single event. The comparison should be repeated on at least two additional storms to confirm the non-preservation pattern is not event-specific.
+
+7. **IDW parameter sensitivity.** The edge threshold and SH truncation sweeps are complete. IDW k (number of neighbors) and distance weighting exponent have not been swept.
+
+8. **Window size sensitivity.** The 2-hour window was chosen for computational tractability with the 3-topology edge field. Extending to the full 3-day event with the per-timestep approach (not 3-topology) would test whether the results hold at longer timescales.
+
+9. **ABR per-station spatial breakdown.** The 3-topology pipeline computes Γ over the full edge field but does not yet decompose per-station. Adding per-station σ² from R output would enable direct spatial comparison with the traditional pipeline's residual map.
 
 ---
 
